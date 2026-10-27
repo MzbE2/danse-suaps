@@ -87,6 +87,10 @@
   .legende{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:6px 0 12px}
   .legende span{display:flex;align-items:center;gap:5px}
   .legende i{display:inline-block;width:14px;height:12px;border-radius:3px}
+  select.small{font-size:13px;padding:4px 6px;max-width:180px}
+  .code{font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:700;letter-spacing:1px}
+  .st{display:block;font-size:12px;margin-top:2px}
+  .apercu{border:2px dashed var(--line);border-radius:12px;padding:14px}
   @media (max-width:820px){
     .notation{grid-template-columns:1fr} .notation aside{position:static}
     #liste-etu{max-height:240px}
@@ -106,10 +110,11 @@
   <section id="v-login" hidden>
     <div class="card login">
       <h2>Espace étudiantes</h2>
-      <p class="hint">Entre ton adresse mail Dauphine. Tu vas recevoir un lien de connexion, sans mot de passe.</p>
+      <p class="hint">Entre ton adresse mail Dauphine et le code personnel donné par ton enseignante.</p>
       <form id="f-link">
-        <input type="email" id="link-email" placeholder="prenom.nom@dauphine.psl.eu" required>
-        <button>Recevoir le lien</button>
+        <input type="email" id="link-email" placeholder="prenom.nom@dauphine.eu" required autocomplete="username">
+        <input id="link-code" placeholder="Code (6 caractères)" required autocomplete="current-password" style="text-transform:uppercase">
+        <button>Se connecter</button>
       </form>
       <p id="link-msg" class="hint"></p>
       <hr>
@@ -130,6 +135,7 @@
       <button data-act="tab" data-tab="sujets">Sujets &amp; relecture</button>
       <button data-act="tab" data-tab="notation">Notation</button>
       <button data-act="tab" data-tab="recap">Récapitulatif</button>
+      <button data-act="tab" data-tab="apercu">Vue étudiante</button>
       <button data-act="tab" data-tab="reglages">Réglages</button>
     </nav>
     <div id="admin-content"></div>
@@ -139,8 +145,8 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, sendSignInLinkToEmail,
-         isSignInWithEmailLink, signInWithEmailLink, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getAuth, initializeAuth, inMemoryPersistence, onAuthStateChanged, GoogleAuthProvider, signInWithPopup,
+         signInWithEmailAndPassword, createUserWithEmailAndPassword, deleteUser, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, onSnapshot, runTransaction,
          serverTimestamp, writeBatch, arrayRemove, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
@@ -148,10 +154,13 @@ import { firebaseConfig } from "./firebase-config.js";
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+// Seconde connexion, utilisée seulement pour créer / supprimer les comptes des étudiantes
+const auth2 = initializeAuth(initializeApp(firebaseConfig, "comptes"), { persistence: inMemoryPersistence });
 
 /* ================= Paramètres ================= */
 const ADMINS = ["mzubaloff@gmail.com", "florianeude@gmail.com"];
 const DOMAIN_RE = /^[^@\s]+@(dauphine\.psl\.eu|psl\.eu|dauphine\.eu)$/i;
+const NB_RELECT = 4; // nombre de relectures par article
 const NIVEAUX = ["Non acquis", "Non acquis → en cours", "En cours d'acquisition", "En cours → acquis", "Acquis"];
 const VALEUR = 1.25; // niveau 0..4  →  0 / 1,25 / 2,5 / 3,75 / 5
 
@@ -269,8 +278,8 @@ const SEMESTRES = {
 };
 
 /* ================= État & utilitaires ================= */
-const S = { me: null, role: null, etudiants: {}, sujets: {}, inscriptions: {}, notes: {}, config: null,
-            unsub: [], tab: "etudiants", sel: null, sem: "s1", editEtu: null };
+const S = { me: null, role: null, etudiants: {}, sujets: {}, inscriptions: {}, notes: {}, codes: {}, config: null,
+            unsub: [], tab: "etudiants", sel: null, sem: "s1", editEtu: null, apercu: "" };
 const $ = (q) => document.querySelector(q);
 const h = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmt = (n) => n == null ? "–" : (Number.isInteger(n) ? String(n) : n.toFixed(1).replace(".", ","));
@@ -278,7 +287,15 @@ const byName = (a, b) => (a.nom || "").localeCompare(b.nom || "", "fr") || (a.pr
 const etuList = () => Object.values(S.etudiants).sort(byName);
 const sujetList = () => Object.values(S.sujets).sort((a, b) => a.num - b.num);
 const nom = (e) => { const x = S.etudiants[e]; return x ? `${x.prenom} ${x.nom}` : e; };
-const maxPlaces = () => S.config?.maxParSujet || 1;
+const maxPlaces = () => 1; // un sujet = une étudiante
+const relecteursDe = (a) => (S.inscriptions[a]?.relecteurs || []).filter(Boolean);
+const aRelireDe = (r) => Object.keys(S.inscriptions).filter((a) => a !== r && relecteursDe(a).includes(r));
+const aRelu = (r, a) => !!S.inscriptions[r]?.relus?.[a];
+const tc = (x) => x && x === x.toUpperCase() ? x.toLowerCase().replace(/(^|[\s'-])\p{L}/gu, (m) => m.toUpperCase()) : x;
+function genCode() {
+  const A = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  return [...crypto.getRandomValues(new Uint32Array(6))].map((x) => A[x % A.length]).join("");
+}
 let toastT;
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 3200); }
 function show(v) { for (const id of ["loading", "login", "denied", "student", "admin"]) $("#v-" + id).hidden = id !== v; }
@@ -303,26 +320,18 @@ function notesEtu(email, sem) {
 }
 
 /* ================= Authentification ================= */
-if (isSignInWithEmailLink(auth, location.href)) {
-  let email = localStorage.getItem("emailForSignIn");
-  if (!email) email = prompt("Confirme ton adresse mail Dauphine :");
-  if (email) {
-    signInWithEmailLink(auth, email.trim(), location.href)
-      .then(() => { localStorage.removeItem("emailForSignIn"); history.replaceState(null, "", location.pathname); })
-      .catch((e) => { fail(e); history.replaceState(null, "", location.pathname); });
-  }
-}
-
 $("#f-link").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const email = $("#link-email").value.trim().toLowerCase();
+  const code = $("#link-code").value.trim().toUpperCase();
   const msg = $("#link-msg");
-  if (!DOMAIN_RE.test(email)) { msg.textContent = "Utilise ton adresse Dauphine (…@dauphine.psl.eu, …@psl.eu ou …@dauphine.eu)."; return; }
-  try {
-    await sendSignInLinkToEmail(auth, email, { url: location.origin + location.pathname, handleCodeInApp: true });
-    localStorage.setItem("emailForSignIn", email);
-    msg.textContent = "Lien envoyé à " + email + ". Ouvre-le depuis cet appareil (pense à vérifier tes spams).";
-  } catch (e) { msg.textContent = "Envoi impossible : " + e.message; }
+  if (!DOMAIN_RE.test(email)) { msg.textContent = "Utilise ton adresse Dauphine (…@dauphine.eu, …@dauphine.psl.eu ou …@psl.eu)."; return; }
+  msg.textContent = "Connexion…";
+  try { await signInWithEmailAndPassword(auth, email, code); msg.textContent = ""; }
+  catch (e) {
+    msg.textContent = e.code === "auth/too-many-requests" ? "Trop d'essais. Réessaie dans quelques minutes."
+      : "Adresse ou code incorrect. Vérifie ton code auprès de ton enseignante.";
+  }
 });
 
 onAuthStateChanged(auth, async (user) => {
@@ -350,57 +359,58 @@ function startListeners(admin) {
   S.unsub.push(onSnapshot(collection(db, "inscriptions"), (qs) => { S.inscriptions = mapOf(qs); render(); }, onErr));
   S.unsub.push(onSnapshot(doc(db, "config", "general"), (d) => { S.config = d.exists() ? d.data() : null; render(); }, onErr));
   if (admin) S.unsub.push(onSnapshot(collection(db, "notes"), (qs) => { S.notes = mapOf(qs); render(); }, onErr));
+  if (admin) S.unsub.push(onSnapshot(collection(db, "codes"), (qs) => { S.codes = mapOf(qs); render(); }, onErr));
 }
-function render() { if (S.role === "student") renderStudent(); else if (S.role === "admin") updateTab(); }
+function render() { if (S.role === "student") renderStudent($("#v-student"), S.me, false); else if (S.role === "admin") updateTab(); }
 
 /* ================= Espace étudiante ================= */
-function renderStudent() {
-  const el = $("#v-student");
-  const me = S.me, moi = S.etudiants[me];
+function renderStudent(el, me, preview) {
+  const moi = S.etudiants[me];
   const insc = S.inscriptions[me];
   const ouvert = !!S.config?.choixOuverts;
+  const dis = preview ? "disabled" : "";
   let html = `<div class="card"><h2>Bonjour ${h(moi?.prenom || "")} 👋</h2>`;
 
   if (!insc) {
     html += ouvert
-      ? `<p>Choisis ton sujet d'article de gazette. <strong>Le choix est définitif</strong> et c'est premier arrivé, premier servi.</p><p class="hint">${maxPlaces()} place(s) par sujet.</p></div>`
+      ? `<p>Choisis ton sujet d'article de gazette. <strong>Le choix est définitif</strong> et c'est premier arrivé, premier servi.</p></div>`
       : `<p>Le choix des sujets n'est pas encore ouvert. Reviens plus tard.</p></div>`;
     html += `<div class="sujets">` + sujetList().map((s) => {
-      const n = (s.membres || []).length, full = n >= maxPlaces();
+      const m = s.membres || [], full = m.length >= 1;
       return `<div class="sujet ${full ? "full" : ""}">
-        <span class="num">SUJET ${s.num} · ${n}/${maxPlaces()}</span>
+        <span class="num">SUJET ${s.num}</span>
         <span class="titre">${h(s.titre)}</span><span class="desc">${h(s.desc)}</span>
-        ${n ? `<div>${(s.membres || []).map((m) => `<span class="pill">${h(nom(m))}</span>`).join("")}</div>` : ""}
-        <button data-act="choisir" data-s="${s.id}" ${full || !ouvert ? "disabled" : ""}>${full ? "Complet" : "Choisir ce sujet"}</button>
+        ${full ? `<div><span class="pill">${h(nom(m[0]))}</span></div>` : ""}
+        <button data-act="choisir" data-s="${s.id}" ${full || !ouvert || preview ? "disabled" : ""}>${full ? "Déjà pris" : "Choisir ce sujet"}</button>
       </div>`;
     }).join("") + `</div>`;
     el.innerHTML = html; return;
   }
 
   const s = S.sujets[insc.sujet] || {};
-  const membres = s.membres || [me];
-  const autres = membres.filter((m) => m !== me);
   html += `<p>Ton sujet :</p><h3>Sujet ${s.num} · ${h(s.titre)}</h3><p class="hint">${h(s.desc)}</p></div>`;
 
-  html += `<div class="card"><h3>Mes actions</h3>
-    <label class="check"><input type="checkbox" data-act="realise" ${insc.realise ? "checked" : ""}>
-      <span>J'ai <strong>réalisé</strong> ma partie de l'article</span></label>`;
-  if (autres.length) {
-    html += autres.map((m) => `<label class="check"><input type="checkbox" data-act="relu" data-e="${h(m)}" ${insc.relus?.[m] ? "checked" : ""}>
-      <span>J'ai <strong>relu</strong> le travail de ${h(nom(m))} <span class="hint">(orthographe et mise en forme)</span></span></label>`).join("");
-  } else {
-    html += `<p class="hint">Personne d'autre n'a encore choisi ce sujet. Les cases de relecture apparaîtront quand ton groupe sera constitué.</p>`;
-  }
+  html += `<div class="card"><h3>Mon article</h3>
+    <label class="check"><input type="checkbox" data-act="realise" ${insc.realise ? "checked" : ""} ${dis}>
+      <span>J'ai <strong>réalisé</strong> mon article</span></label></div>`;
+
+  const aRelire = aRelireDe(me);
+  html += `<div class="card"><h3>Articles à relire ${aRelire.length ? `(${aRelire.filter((a) => insc.relus?.[a]).length}/${aRelire.length})` : ""}</h3>`;
+  html += aRelire.length
+    ? aRelire.map((a) => {
+        const sa = S.sujets[S.inscriptions[a].sujet] || {};
+        return `<label class="check"><input type="checkbox" data-act="relu" data-e="${h(a)}" ${insc.relus?.[a] ? "checked" : ""} ${dis}>
+          <span>J'ai <strong>relu</strong> l'article de ${h(nom(a))} <span class="hint">· sujet ${sa.num} : ${h(sa.titre)} (orthographe et mise en forme)
+          ${S.inscriptions[a].realise ? "" : " · pas encore terminé"}</span></span></label>`;
+      }).join("")
+    : `<p class="hint">Ton enseignante n'a pas encore désigné les articles que tu dois relire.</p>`;
   html += `</div>`;
 
-  html += `<div class="card"><h3>Mon groupe</h3><div class="tblwrap"><table><tr><th>Étudiante</th><th>Réalisé</th><th>Relu par</th></tr>` +
-    membres.map((m) => {
-      const i = S.inscriptions[m] || {};
-      const par = membres.filter((o) => o !== m && S.inscriptions[o]?.relus?.[m]);
-      const attendu = membres.length - 1;
-      return `<tr><td>${h(nom(m))}</td><td>${i.realise ? '<span class="yes">✓</span>' : '<span class="no">—</span>'}</td>
-        <td>${par.map((o) => `<span class="pill">${h(nom(o))}</span>`).join("") || '<span class="hint">personne</span>'} <span class="hint">${attendu ? par.length + "/" + attendu : ""}</span></td></tr>`;
-    }).join("") + `</table></div></div>`;
+  const rel = relecteursDe(me);
+  html += `<div class="card"><h3>Mon article est relu par</h3>` + (rel.length
+    ? `<div class="tblwrap"><table><tr><th>Relectrice</th><th>Relu</th></tr>` +
+      rel.map((r) => `<tr><td>${h(nom(r))}</td><td>${aRelu(r, me) ? '<span class="yes">✓</span>' : '<span class="hint">en attente</span>'}</td></tr>`).join("") + `</table></div>`
+    : `<p class="hint">Les relectrices de ton article n'ont pas encore été désignées.</p>`) + `</div>`;
   el.innerHTML = html;
 }
 
@@ -413,7 +423,7 @@ async function choisirSujet(sid, email, parAdmin = false) {
     const cfg = cDoc.data() || {};
     const membres = sDoc.data().membres || [];
     if (!parAdmin && !cfg.choixOuverts) throw new Error("Le choix des sujets est fermé.");
-    if (!parAdmin && membres.length >= (cfg.maxParSujet || 1)) throw new Error("Trop tard, ce sujet vient d'être complété.");
+    if (membres.length >= 1) throw new Error("Trop tard, ce sujet vient d'être pris.");
     tx.update(sRef, { membres: [...membres, email] });
     tx.set(iRef, { sujet: sid, realise: false, relus: {}, date: serverTimestamp() });
   });
@@ -434,32 +444,45 @@ const TABS = {
   /* ---------- Étudiantes ---------- */
   etudiants: {
     build: () => `
+      <div class="card"><h3>Importer une liste</h3>
+        <p class="hint">Dans ton tableur, sélectionne les lignes des étudiantes (de la colonne Nom jusqu'à la colonne Mail), copie (Ctrl+C) et colle ici (Ctrl+V). Un code de connexion est créé pour chacune.</p>
+        <textarea id="imp-txt" placeholder="AMER	Sophie	F	LSO	L2	sophie.amer@dauphine.eu"></textarea>
+        <p class="row"><input id="imp-cren" placeholder="Créneau de cette liste (ex. Créneau 1 · mardi 12h)" list="jours" style="flex:1 1 260px">
+          <button data-act="import" id="imp-btn">Importer</button></p>
+        <div id="imp-res" class="hint"></div>
+      </div>
       <div class="card"><h3 id="etu-form-title">Ajouter une étudiante</h3>
         <form id="f-etu" class="row">
           <input id="e-prenom" placeholder="Prénom" required>
           <input id="e-nom" placeholder="Nom" required>
-          <input id="e-email" type="email" placeholder="prenom.nom@dauphine.psl.eu" required>
-          <input id="e-jour" placeholder="Jour de danse (ex. mardi)" list="jours">
+          <input id="e-email" type="email" placeholder="prenom.nom@dauphine.eu" required>
+          <input id="e-jour" placeholder="Créneau" list="jours">
           <button>Enregistrer</button>
           <button type="button" class="ghost" data-act="etu-cancel" id="etu-cancel" hidden>Annuler</button>
         </form>
         <datalist id="jours"></datalist>
-        <p class="hint">Seules les adresses …@dauphine.psl.eu, …@psl.eu et …@dauphine.eu peuvent se connecter.</p>
+        <p class="hint">Seules les adresses …@dauphine.eu, …@dauphine.psl.eu et …@psl.eu peuvent se connecter.</p>
       </div>
-      <div class="card"><h3>Liste des étudiantes (<span id="nb-etu">0</span>)</h3><div id="tbl-etu" class="tblwrap"></div></div>`,
+      <div class="card"><div class="row" style="justify-content:space-between"><h3>Liste des étudiantes (<span id="nb-etu">0</span>)</h3>
+        <button class="ghost" data-act="export-codes">Exporter les codes (Excel)</button></div>
+        <p class="hint">Chaque étudiante se connecte avec son adresse mail et son code. Aucun mail n'est envoyé.</p>
+        <div id="tbl-etu" class="tblwrap"></div></div>`,
     init: () => { $("#f-etu").addEventListener("submit", saveEtu); },
     update: () => {
       const list = etuList();
       $("#nb-etu").textContent = list.length;
       $("#jours").innerHTML = [...new Set(list.map((e) => e.jour).filter(Boolean))].map((j) => `<option value="${h(j)}">`).join("");
-      $("#tbl-etu").innerHTML = list.length ? `<table><tr><th>Nom</th><th>Prénom</th><th>Mail</th><th>Jour</th><th>Sujet</th><th></th></tr>` +
+      $("#tbl-etu").innerHTML = list.length ? `<table><tr><th>Nom</th><th>Prénom</th><th>Mail</th><th>Créneau</th><th>Code</th><th>Sujet</th><th>À relire</th><th></th></tr>` +
         list.map((e) => {
           const i = S.inscriptions[e.id], s = i && S.sujets[i.sujet];
+          const code = S.codes[e.id]?.code;
           return `<tr><td>${h(e.nom)}</td><td>${h(e.prenom)}</td><td class="hint">${h(e.id)}</td><td>${h(e.jour)}</td>
+            <td>${code ? `<span class="code">${h(code)}</span>` : '<span class="no" title="Pas de code : supprime puis rajoute cette étudiante">aucun</span>'}</td>
             <td>${s ? "n° " + s.num : '<span class="hint">—</span>'}</td>
+            <td>${aRelireDe(e.id).length || '<span class="hint">0</span>'}</td>
             <td class="row"><button class="small ghost" data-act="etu-edit" data-e="${h(e.id)}">Modifier</button>
             <button class="small danger" data-act="etu-del" data-e="${h(e.id)}">Supprimer</button></td></tr>`;
-        }).join("") + `</table>` : `<p class="hint">Aucune étudiante pour l'instant. Ajoute-les avec le formulaire ci-dessus.</p>`;
+        }).join("") + `</table>` : `<p class="hint">Aucune étudiante pour l'instant. Importe une liste ou ajoute-les avec le formulaire.</p>`;
     },
   },
 
@@ -472,29 +495,35 @@ const TABS = {
         $("#suj-resume").innerHTML = `<p>Les 25 sujets ne sont pas encore créés.</p><button data-act="init">Créer les 25 sujets</button>`;
         $("#tbl-suj").innerHTML = ""; return;
       }
-      const sansSujet = etuList().filter((e) => !S.inscriptions[e.id]);
-      $("#suj-resume").innerHTML = `<p>Choix ${S.config?.choixOuverts ? '<span class="yes">ouverts</span>' : '<span class="no">fermés</span>'} · ${maxPlaces()} place(s) par sujet ·
+      const etus = etuList();
+      const sansSujet = etus.filter((e) => !S.inscriptions[e.id]);
+      const charge = Object.fromEntries(etus.map((e) => [e.id, aRelireDe(e.id).length]));
+      const desequ = etus.filter((e) => S.inscriptions[e.id] && charge[e.id] !== NB_RELECT);
+      $("#suj-resume").innerHTML = `<p>Choix ${S.config?.choixOuverts ? '<span class="yes">ouverts</span>' : '<span class="no">fermés</span>'} ·
         ${sansSujet.length} étudiante(s) sans sujet${sansSujet.length ? " : " + sansSujet.map((e) => `<span class="pill">${h(e.prenom + " " + e.nom)}</span>`).join("") : ""}</p>
-        <p class="hint">« Réalisé » et « Relu » sont cochés par les étudiantes. Chaque étudiante doit relire le travail de chaque autre membre de son groupe.</p>`;
+        <p class="hint">Chaque étudiante écrit un article seule et relit ${NB_RELECT} articles d'autres étudiantes. Choisis les relectrices dans les colonnes, ou utilise la répartition automatique. Les coches ✓ sont faites par les étudiantes.</p>
+        <p class="row"><button data-act="auto-relect">Répartir les relectures automatiquement</button>
+        ${desequ.length ? `<span class="hint">Pas exactement ${NB_RELECT} articles à relire : ${desequ.map((e) => `<span class="pill">${h(e.prenom + " " + e.nom)} (${charge[e.id]})</span>`).join("")}</span>` : ""}</p>`;
       const opts = sansSujet.map((e) => `<option value="${h(e.id)}">${h(e.prenom + " " + e.nom)}</option>`).join("");
-      $("#tbl-suj").innerHTML = `<table><tr><th>N°</th><th>Sujet</th><th>Groupe : réalisé · relu par</th><th>Relectures</th></tr>` +
+      const ks = [...Array(NB_RELECT).keys()];
+      $("#tbl-suj").innerHTML = `<table><tr><th>N°</th><th>Sujet</th><th>Étudiante</th><th>Réalisé</th>${ks.map((k) => `<th>Relecture ${k + 1}</th>`).join("")}</tr>` +
         list.map((s) => {
-          const m = s.membres || [];
-          const attendu = m.length * (m.length - 1);
-          let faites = 0;
-          const lignes = m.map((e) => {
-            const i = S.inscriptions[e] || {};
-            const par = m.filter((o) => o !== e && S.inscriptions[o]?.relus?.[e]);
-            faites += par.length;
-            return `<div style="margin-bottom:4px"><strong>${h(nom(e))}</strong> ${i.realise ? '<span class="yes">✓ réalisé</span>' : '<span class="no">non réalisé</span>'}
-              · relu par ${par.length ? par.map((o) => h(nom(o))).join(", ") : '<span class="hint">personne</span>'}
-              <button class="small danger" data-act="unassign" data-s="${s.id}" data-e="${h(e)}" title="Retirer du sujet">✕</button></div>`;
-          }).join("");
+          const a = (s.membres || [])[0];
+          if (!a) return `<tr><td><strong>${s.num}</strong></td><td>${h(s.titre)}</td>
+            <td>${opts ? `<select class="small" data-act="assign" data-s="${s.id}"><option value="">+ Attribuer…</option>${opts}</select>` : '<span class="hint">libre</span>'}</td>
+            <td></td>${ks.map(() => "<td></td>").join("")}</tr>`;
+          const i = S.inscriptions[a] || {};
+          const rel = i.relecteurs || [];
           return `<tr><td><strong>${s.num}</strong></td><td>${h(s.titre)}</td>
-            <td>${lignes || '<span class="hint">libre</span>'}
-              ${opts ? `<div><select data-act="assign" data-s="${s.id}"><option value="">+ Ajouter une étudiante…</option>${opts}</select></div>` : ""}</td>
-            <td>${attendu ? `${faites}/${attendu}` : "—"}</td></tr>`;
-        }).join("") + `</table>`;
+            <td><strong>${h(nom(a))}</strong> <button class="small danger" data-act="unassign" data-s="${s.id}" data-e="${h(a)}" title="Retirer du sujet">✕</button></td>
+            <td>${i.realise ? '<span class="yes">✓</span>' : '<span class="no">—</span>'}</td>` +
+            ks.map((k) => {
+              const r = rel[k] || "";
+              return `<td><select class="small" data-act="relect" data-a="${h(a)}" data-k="${k}"><option value="">—</option>` +
+                etus.filter((e) => e.id !== a).map((e) => `<option value="${h(e.id)}" ${e.id === r ? "selected" : ""}>${h(e.prenom + " " + e.nom)} (${charge[e.id]})</option>`).join("") +
+                `</select>${r ? (aRelu(r, a) ? '<span class="st yes">✓ relu</span>' : '<span class="st hint">à relire</span>') : ""}</td>`;
+            }).join("") + `</tr>`;
+        }).join("") + `</table><p class="hint">Le chiffre entre parenthèses = nombre d'articles que cette étudiante doit déjà relire.</p>`;
     },
   },
 
@@ -543,12 +572,12 @@ const TABS = {
       if (!e) { $("#fiche-head").innerHTML = `<p class="hint">Sélectionne une étudiante dans la liste.</p>`; return; }
       document.querySelectorAll(".semtabs button").forEach((b) => b.classList.toggle("on", b.dataset.sem === S.sem));
       const i = S.inscriptions[e.id], s = i && S.sujets[i.sujet];
-      const autres = s ? (s.membres || []).filter((m) => m !== e.id) : [];
+      const aRel = aRelireDe(e.id), rel = relecteursDe(e.id);
       $("#fiche-head").innerHTML = `<h2>${h(e.prenom)} ${h(e.nom)}</h2><p class="hint">${h(e.id)}${e.jour ? " · " + h(e.jour) : ""}</p>
         <div class="groupe">${s
-          ? `<strong>Article : sujet ${s.num}</strong> · ${h(s.titre)}<br>Groupe : ${autres.length ? autres.map((m) => `<span class="pill">${h(nom(m))}</span>`).join("") : "seule"}
-             · ${i.realise ? '<span class="yes">réalisé</span>' : '<span class="no">non réalisé</span>'}
-             · a relu ${autres.filter((m) => i.relus?.[m]).length}/${autres.length}`
+          ? `<strong>Article : sujet ${s.num}</strong> · ${h(s.titre)}<br>${i.realise ? '<span class="yes">réalisé</span>' : '<span class="no">non réalisé</span>'}
+             · a relu ${aRel.filter((a) => i.relus?.[a]).length}/${aRel.length} article(s)
+             · relu par ${rel.filter((r) => aRelu(r, e.id)).length}/${rel.length}`
           : "Pas encore de sujet d'article."}</div>`;
 
       const ns = S.notes[e.id]?.[S.sem] || {};
@@ -590,13 +619,25 @@ const TABS = {
     },
   },
 
+  /* ---------- Vue étudiante (aperçu) ---------- */
+  apercu: {
+    build: () => `<div class="card"><h3>Voir l'application comme une étudiante</h3>
+      <p class="row"><select id="ap-sel" data-act="apercu"></select></p>
+      <p class="hint">Aperçu en lecture seule : tu vois exactement ce que voit l'étudiante, mais rien n'est cliquable.</p></div>
+      <div id="apercu" class="apercu"></div>`,
+    update: () => {
+      const sel = $("#ap-sel");
+      sel.innerHTML = `<option value="">Choisis une étudiante…</option>` + etuList().map((e) => `<option value="${h(e.id)}" ${e.id === S.apercu ? "selected" : ""}>${h(e.prenom + " " + e.nom)}</option>`).join("");
+      if (S.apercu && S.etudiants[S.apercu]) renderStudent($("#apercu"), S.apercu, true);
+      else $("#apercu").innerHTML = `<p class="hint">Sélectionne une étudiante ci-dessus.</p>`;
+    },
+  },
+
   /* ---------- Réglages ---------- */
   reglages: {
     build: () => `<div class="card"><h3>Choix des sujets d'article</h3>
         <label class="check"><input type="checkbox" id="cfg-open"><span><strong>Choix ouverts</strong> : les étudiantes peuvent choisir leur sujet</span></label>
-        <p class="row">Nombre d'étudiantes maximum par sujet :
-          <select id="cfg-max">${[1, 2, 3, 4, 5].map((n) => `<option>${n}</option>`).join("")}</select></p>
-        <p class="hint">Avec 18 étudiantes et 25 sujets, 1 place = travail seule. Mets 2 à 5 pour des groupes.</p>
+        <p class="hint">Un sujet par étudiante, premier arrivé premier servi. Ferme les choix une fois que tout le monde a choisi.</p>
       </div>
       <div class="card"><h3>Sujets</h3><p class="hint">Crée les 25 sujets s'ils n'existent pas encore (ne modifie pas les choix déjà faits).</p>
         <button data-act="init">Créer les sujets manquants</button></div>
@@ -604,40 +645,124 @@ const TABS = {
         <p class="hint">Pour en ajouter, modifier la liste dans index.html et dans firestore.rules.</p></div>`,
     init: () => {
       const save = (data) => setDoc(doc(db, "config", "general"), data, { merge: true }).then(() => toast("Réglage enregistré")).catch(fail);
-      $("#cfg-open").addEventListener("change", (ev) => save({ choixOuverts: ev.target.checked, maxParSujet: maxPlaces() }));
-      $("#cfg-max").addEventListener("change", (ev) => save({ maxParSujet: Number(ev.target.value), choixOuverts: !!S.config?.choixOuverts }));
+      $("#cfg-open").addEventListener("change", (ev) => save({ choixOuverts: ev.target.checked, maxParSujet: 1 }));
     },
-    update: () => { $("#cfg-open").checked = !!S.config?.choixOuverts; $("#cfg-max").value = String(maxPlaces()); },
+    update: () => { $("#cfg-open").checked = !!S.config?.choixOuverts; },
   },
 };
 
 /* ================= Actions prof ================= */
+async function creerCompte(email) {
+  const code = genCode();
+  try { await createUserWithEmailAndPassword(auth2, email, code); }
+  catch (e) {
+    if (e.code === "auth/email-already-in-use")
+      throw new Error(`un compte de connexion existe déjà pour ${email}. Supprime-le dans la console Firebase (Authentication > Utilisateurs), puis réessaie.`);
+    throw e;
+  } finally { await signOut(auth2).catch(() => {}); }
+  return code;
+}
+async function ajouterEtu(email, prenom, nomV, jour) {
+  const code = await creerCompte(email);
+  const b = writeBatch(db);
+  b.set(doc(db, "etudiants", email), { prenom, nom: nomV, email, jour });
+  b.set(doc(db, "codes", email), { code });
+  await b.commit();
+}
 async function saveEtu(ev) {
   ev.preventDefault();
   const prenom = $("#e-prenom").value.trim(), nomV = $("#e-nom").value.trim();
   const email = $("#e-email").value.trim().toLowerCase(), jour = $("#e-jour").value.trim();
-  if (!DOMAIN_RE.test(email)) { toast("Adresse non autorisée : …@dauphine.psl.eu, …@psl.eu ou …@dauphine.eu"); return; }
+  if (!DOMAIN_RE.test(email)) { toast("Adresse non autorisée : …@dauphine.eu, …@dauphine.psl.eu ou …@psl.eu"); return; }
   if (!S.editEtu && S.etudiants[email]) { toast("Cette adresse est déjà dans la liste."); return; }
   try {
-    await setDoc(doc(db, "etudiants", email), { prenom, nom: nomV, email, jour }, { merge: true });
+    if (S.editEtu) await setDoc(doc(db, "etudiants", email), { prenom, nom: nomV, email, jour }, { merge: true });
+    else await ajouterEtu(email, prenom, nomV, jour);
     toast(S.editEtu ? "Modifications enregistrées" : prenom + " ajoutée");
     resetEtuForm();
   } catch (e) { fail(e); }
+}
+function parseListe(txt) {
+  const ok = [], sansMail = [];
+  for (const line of txt.split(/\r?\n/)) {
+    const cells = line.split("\t").map((c) => c.trim());
+    const iMail = cells.findIndex((c) => c.includes("@"));
+    const avant = (iMail < 0 ? cells : cells.slice(0, iMail)).filter((c) => c && !/^\d+$/.test(c));
+    if (iMail < 0) { if (avant.length >= 2) sansMail.push(avant[0] + " " + avant[1]); continue; }
+    ok.push({ email: cells[iMail].toLowerCase(), nom: avant[0] || "", prenom: tc(avant[1] || "") });
+  }
+  return { ok, sansMail };
+}
+async function importer() {
+  const { ok, sansMail } = parseListe($("#imp-txt").value);
+  const jour = $("#imp-cren").value.trim();
+  if (!ok.length) { toast("Aucune adresse mail trouvée dans le texte collé."); return; }
+  const btn = $("#imp-btn"); btn.disabled = true;
+  const notes = []; let n = 0, k = 0;
+  for (const r of ok) {
+    btn.textContent = `Import… ${++k}/${ok.length}`;
+    if (!DOMAIN_RE.test(r.email)) { notes.push(`${r.email} : adresse non autorisée`); continue; }
+    if (S.etudiants[r.email]) { notes.push(`${r.prenom} ${r.nom} : déjà dans la liste`); continue; }
+    try { await ajouterEtu(r.email, r.prenom, r.nom, jour); n++; }
+    catch (e) { notes.push(`${r.email} : ${e.message}`); }
+  }
+  for (const x of sansMail) notes.push(`${x} : pas d'adresse mail, à ajouter à la main`);
+  btn.disabled = false; btn.textContent = "Importer";
+  $("#imp-txt").value = "";
+  $("#imp-res").innerHTML = `<p><strong>${n} étudiante(s) ajoutée(s).</strong></p>` + (notes.length ? `<ul>${notes.map((x) => `<li>${h(x)}</li>`).join("")}</ul>` : "");
 }
 function resetEtuForm() {
   S.editEtu = null; $("#f-etu").reset(); $("#e-email").readOnly = false;
   $("#etu-form-title").textContent = "Ajouter une étudiante"; $("#etu-cancel").hidden = true;
 }
 async function delEtu(email) {
-  if (!confirm(`Supprimer ${nom(email)} ? Son choix de sujet et toutes ses notes seront aussi supprimés.`)) return;
+  if (!confirm(`Supprimer ${nom(email)} ? Son sujet, ses relectures, ses notes et son code de connexion seront supprimés.`)) return;
+  let compteSupprime = false;
+  const code = S.codes[email]?.code;
+  if (code) {
+    try { const c = await signInWithEmailAndPassword(auth2, email, code); await deleteUser(c.user); compteSupprime = true; }
+    catch (e) { console.warn(e); } finally { await signOut(auth2).catch(() => {}); }
+  }
   const b = writeBatch(db);
   const i = S.inscriptions[email];
   if (i && S.sujets[i.sujet]) b.update(doc(db, "sujets", i.sujet), { membres: arrayRemove(email) });
+  for (const [a, ia] of Object.entries(S.inscriptions))
+    if (a !== email && (ia.relecteurs || []).includes(email)) b.update(doc(db, "inscriptions", a), { relecteurs: ia.relecteurs.map((r) => r === email ? "" : r) });
   b.delete(doc(db, "inscriptions", email));
   b.delete(doc(db, "notes", email));
+  b.delete(doc(db, "codes", email));
   b.delete(doc(db, "etudiants", email));
-  await b.commit().then(() => toast("Supprimée")).catch(fail);
+  await b.commit().then(() => toast(compteSupprime ? "Supprimée" : "Supprimée. Son compte de connexion est à effacer dans Firebase > Authentication.")).catch(fail);
   if (S.sel === email) S.sel = null;
+  if (S.apercu === email) S.apercu = "";
+}
+async function autoRelecteurs() {
+  const auteurs = etuList().map((e) => e.id).filter((id) => S.inscriptions[id]);
+  const sans = etuList().length - auteurs.length;
+  if (auteurs.length < NB_RELECT + 1) { toast(`Il faut au moins ${NB_RELECT + 1} étudiantes ayant un sujet.`); return; }
+  const deja = auteurs.some((a) => relecteursDe(a).length);
+  if (!confirm((deja ? "Les relectrices déjà choisies seront remplacées.\n" : "") +
+    `Chacune des ${auteurs.length} étudiantes ayant un sujet relira ${NB_RELECT} articles et sera relue par ${NB_RELECT} personnes.` +
+    (sans ? `\n${sans} étudiante(s) sans sujet ne sont pas incluses.` : ""))) return;
+  const ord = [...auteurs];
+  for (let i = ord.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ord[i], ord[j]] = [ord[j], ord[i]]; }
+  const b = writeBatch(db);
+  ord.forEach((a, i) => b.update(doc(db, "inscriptions", a), { relecteurs: [...Array(NB_RELECT).keys()].map((k) => ord[(i + k + 1) % ord.length]) }));
+  await b.commit().then(() => toast("Relectures réparties")).catch(fail);
+}
+async function setRelecteur(a, k, r) {
+  const arr = [...(S.inscriptions[a]?.relecteurs || [])];
+  while (arr.length < NB_RELECT) arr.push("");
+  if (r && arr.includes(r) && arr[k] !== r) { toast(nom(r) + " relit déjà cet article."); updateTab(); return; }
+  arr[k] = r;
+  await updateDoc(doc(db, "inscriptions", a), { relecteurs: arr }).catch(fail);
+}
+function exportCodes() {
+  if (!window.XLSX) { toast("Module Excel non chargé."); return; }
+  const rows = [["Nom", "Prénom", "Mail", "Créneau", "Code"], ...etuList().map((e) => [e.nom, e.prenom, e.id, e.jour || "", S.codes[e.id]?.code || ""])];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), "Codes");
+  XLSX.writeFile(wb, "Codes connexion danse.xlsx");
 }
 async function initSujets() {
   const b = writeBatch(db); let n = 0;
@@ -646,10 +771,12 @@ async function initSujets() {
   await b.commit().then(() => toast(n + " sujet(s) créé(s)")).catch(fail);
 }
 async function unassign(sid, email) {
-  if (!confirm(`Retirer ${nom(email)} du sujet ? Ses cases « réalisé » et « relu » seront effacées.`)) return;
+  if (!confirm(`Retirer ${nom(email)} du sujet ? Ses cases « réalisé » et « relu » ainsi que ses relectures seront effacées.`)) return;
   const b = writeBatch(db);
   b.update(doc(db, "sujets", sid), { membres: arrayRemove(email) });
   b.delete(doc(db, "inscriptions", email));
+  for (const [a, ia] of Object.entries(S.inscriptions))
+    if (a !== email && (ia.relecteurs || []).includes(email)) b.update(doc(db, "inscriptions", a), { relecteurs: ia.relecteurs.map((r) => r === email ? "" : r) });
   await b.commit().then(() => toast("Retirée du sujet")).catch(fail);
 }
 async function setLevel(gk, pi, ii, l) {
@@ -675,16 +802,15 @@ function exportXlsx() {
       }
     }
   }
-  const suj = [["N°", "Sujet", "Étudiante", "Réalisé", "A relu", "Relue par"]];
+  const suj = [["N°", "Sujet", "Étudiante", "Réalisé", ...[...Array(NB_RELECT).keys()].map((k) => "Relecture " + (k + 1)), "A relu"]];
   for (const s of sujetList()) {
-    const m = s.membres || [];
-    if (!m.length) suj.push([s.num, s.titre, "", "", "", ""]);
-    for (const e of m) {
-      const i = S.inscriptions[e] || {};
-      suj.push([s.num, s.titre, nom(e), i.realise ? "oui" : "non",
-        m.filter((o) => o !== e && i.relus?.[o]).map(nom).join(", "),
-        m.filter((o) => o !== e && S.inscriptions[o]?.relus?.[e]).map(nom).join(", ")]);
-    }
+    const e = (s.membres || [])[0];
+    if (!e) { suj.push([s.num, s.titre]); continue; }
+    const i = S.inscriptions[e] || {}, rel = i.relecteurs || [];
+    const aRel = aRelireDe(e);
+    suj.push([s.num, s.titre, nom(e), i.realise ? "oui" : "non",
+      ...[...Array(NB_RELECT).keys()].map((k) => rel[k] ? nom(rel[k]) + (aRelu(rel[k], e) ? " ✓" : "") : ""),
+      `${aRel.filter((a) => i.relus?.[a]).length}/${aRel.length}`]);
   }
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(recap), "Récapitulatif");
@@ -723,6 +849,9 @@ document.addEventListener("click", async (ev) => {
     case "sem": S.sem = d.sem; $("#n-comment").value = S.notes[S.sel]?.commentaires?.[S.sem] || ""; updateTab(); break;
     case "lvl": setLevel(d.g, Number(d.p), Number(d.i), Number(d.l)); break;
     case "export": exportXlsx(); break;
+    case "export-codes": exportCodes(); break;
+    case "import": importer(); break;
+    case "auto-relect": autoRelecteurs(); break;
   }
 });
 document.addEventListener("change", async (ev) => {
@@ -733,9 +862,10 @@ document.addEventListener("change", async (ev) => {
     if (t.checked) relus[d.e] = true; else delete relus[d.e];
     updateDoc(doc(db, "inscriptions", S.me), { relus }).catch(fail);
   }
+  if (d.act === "relect") setRelecteur(d.a, Number(d.k), t.value);
+  if (d.act === "apercu") { S.apercu = t.value; updateTab(); }
   if (d.act === "assign" && t.value) {
     const email = t.value, s = S.sujets[d.s];
-    if ((s.membres || []).length >= maxPlaces() && !confirm("Ce sujet est déjà complet. L'ajouter quand même ?")) { t.value = ""; return; }
     try { await choisirSujet(d.s, email, true); toast(nom(email) + " ajoutée au sujet " + s.num); } catch (e) { fail(e); }
   }
 });

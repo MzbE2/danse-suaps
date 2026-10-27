@@ -1,0 +1,744 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UE Danse · Dauphine</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#f6f3ef; --card:#ffffff; --ink:#26202b; --muted:#6f6675; --line:#e4ddd6;
+    --accent:#6b2d5c; --accent-soft:#f1e6ee; --ok:#2e7d32; --warn:#c0392b;
+    --l0:#d64545; --l1:#ef8a3c; --l2:#f2c94c; --l3:#8bc34a; --l4:#1f6b2a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);font-size:15px}
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;background:var(--accent);color:#fff}
+  header h1{margin:0;font-size:18px;font-weight:600;letter-spacing:.3px}
+  header .who{font-size:13px;opacity:.9;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+  main{max-width:1200px;margin:0 auto;padding:20px 16px 60px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+  h2{font-size:20px;margin:0 0 10px} h3{font-size:16px;margin:0 0 10px} h4{font-size:14px;margin:0}
+  button{font:inherit;cursor:pointer;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:8px;padding:8px 14px}
+  button.ghost{background:transparent;color:var(--accent)}
+  button.small{padding:4px 9px;font-size:13px}
+  button.danger{border-color:var(--warn);background:transparent;color:var(--warn)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  header button{border-color:#fff;background:transparent;color:#fff;padding:5px 10px;font-size:13px}
+  input,select,textarea{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink)}
+  textarea{width:100%;min-height:80px;resize:vertical}
+  .hint{color:var(--muted);font-size:13px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .row > input{flex:1 1 160px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:600}
+  .tblwrap{overflow-x:auto}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+  .tabs button{background:transparent;color:var(--accent)}
+  .tabs button.on{background:var(--accent);color:#fff}
+  .pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;background:var(--accent-soft);color:var(--accent);margin:2px 4px 2px 0}
+  .yes{color:var(--ok);font-weight:600} .no{color:var(--warn)}
+  .login{max-width:460px;margin:30px auto}
+  .login form{display:flex;gap:8px;flex-wrap:wrap} .login input{flex:1 1 220px}
+  hr{border:none;border-top:1px solid var(--line);margin:22px 0}
+  #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:8px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;z-index:10}
+  #toast.show{opacity:1}
+
+  /* Sujets côté étudiante */
+  .sujets{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+  .sujet{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px}
+  .sujet.full{opacity:.55}
+  .sujet .num{font-size:12px;color:var(--accent);font-weight:700}
+  .sujet .titre{font-weight:600}
+  .sujet .desc{font-size:13px;color:var(--muted);flex:1}
+  .check{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)}
+  .check input{width:20px;height:20px;margin-top:1px}
+
+  /* Notation */
+  .notation{display:grid;grid-template-columns:270px 1fr;gap:16px;align-items:start}
+  .notation aside{position:sticky;top:12px}
+  .notation aside input,.notation aside select{width:100%;margin-bottom:8px}
+  #liste-etu{max-height:70vh;overflow-y:auto}
+  .etu-item{display:block;width:100%;text-align:left;background:#fff;color:var(--ink);border:1px solid var(--line);margin-bottom:6px;padding:8px 10px}
+  .etu-item.on{border-color:var(--accent);background:var(--accent-soft)}
+  .etu-item small{display:block;color:var(--muted);font-size:12px}
+  .semtabs{display:flex;gap:6px;margin:12px 0}
+  .semtabs button{background:transparent;color:var(--accent)} .semtabs button.on{background:var(--accent);color:#fff}
+  .groupe{background:var(--accent-soft);border-radius:10px;padding:10px 12px;font-size:14px;margin-top:8px}
+  .grille{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+  .grille-head{display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:2px solid var(--accent-soft);padding-bottom:8px;margin-bottom:6px}
+  .grille-head h3{margin:0}
+  .total{font-size:22px;font-weight:700;color:var(--accent);white-space:nowrap}
+  .total small,.pnote small{font-size:12px;color:var(--muted);font-weight:400}
+  .incomplet{font-size:11px;font-weight:500;color:var(--muted);margin-left:8px;border:1px solid var(--line);border-radius:99px;padding:1px 7px;vertical-align:middle}
+  .partie{padding:10px 0;border-bottom:1px dashed var(--line)}
+  .partie:last-child{border-bottom:none}
+  .partie-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+  .pnote{font-weight:700;font-size:16px}
+  .item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:5px 0}
+  .item-label{font-size:14px}
+  .boxes{display:flex;gap:4px;flex-shrink:0}
+  .box{width:30px;height:26px;padding:0;border-radius:6px;border:2px solid transparent;opacity:.28}
+  .box:hover{opacity:.6}
+  .box.on{opacity:1;border-color:var(--ink);box-shadow:0 0 0 2px #fff inset}
+  .l0{background:var(--l0)} .l1{background:var(--l1)} .l2{background:var(--l2)} .l3{background:var(--l3)} .l4{background:var(--l4)}
+  .aide{font-size:12px;color:var(--muted);margin:6px 0 0;font-style:italic}
+  .legende{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:6px 0 12px}
+  .legende span{display:flex;align-items:center;gap:5px}
+  .legende i{display:inline-block;width:14px;height:12px;border-radius:3px}
+  @media (max-width:820px){
+    .notation{grid-template-columns:1fr} .notation aside{position:static}
+    #liste-etu{max-height:240px}
+    .item{flex-direction:column;align-items:flex-start}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>UE Danse · Dauphine</h1>
+  <div class="who"><span id="who"></span><button id="btn-logout" data-act="logout" hidden>Se déconnecter</button></div>
+</header>
+
+<main>
+  <section id="v-loading"><p class="hint">Chargement…</p></section>
+
+  <section id="v-login" hidden>
+    <div class="card login">
+      <h2>Espace étudiantes</h2>
+      <p class="hint">Entre ton adresse mail Dauphine. Tu vas recevoir un lien de connexion, sans mot de passe.</p>
+      <form id="f-link">
+        <input type="email" id="link-email" placeholder="prenom.nom@dauphine.psl.eu" required>
+        <button>Recevoir le lien</button>
+      </form>
+      <p id="link-msg" class="hint"></p>
+      <hr>
+      <h2>Espace enseignantes</h2>
+      <button data-act="google">Se connecter avec Google</button>
+    </div>
+  </section>
+
+  <section id="v-denied" hidden>
+    <div class="card login"><h2>Accès impossible</h2><p id="denied-msg"></p></div>
+  </section>
+
+  <section id="v-student" hidden></section>
+
+  <section id="v-admin" hidden>
+    <nav class="tabs">
+      <button data-act="tab" data-tab="etudiants">Étudiantes</button>
+      <button data-act="tab" data-tab="sujets">Sujets &amp; relecture</button>
+      <button data-act="tab" data-tab="notation">Notation</button>
+      <button data-act="tab" data-tab="recap">Récapitulatif</button>
+      <button data-act="tab" data-tab="reglages">Réglages</button>
+    </nav>
+    <div id="admin-content"></div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, sendSignInLinkToEmail,
+         isSignInWithEmailLink, signInWithEmailLink, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, onSnapshot, runTransaction,
+         serverTimestamp, writeBatch, arrayRemove, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { firebaseConfig } from "./firebase-config.js";
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+/* ================= Paramètres ================= */
+const ADMINS = ["mzubaloff@gmail.com", "florianeude@gmail.com"];
+const DOMAIN_RE = /^[^@\s]+@(dauphine\.psl\.eu|psl\.eu|dauphine\.eu)$/i;
+const NIVEAUX = ["Non acquis", "Non acquis → en cours", "En cours d'acquisition", "En cours → acquis", "Acquis"];
+const VALEUR = 1.25; // niveau 0..4  →  0 / 1,25 / 2,5 / 3,75 / 5
+
+const SUJETS = [
+  ["Mais au fond, c'est quoi la danse contemporaine ?", "Une présentation simple de ses caractéristiques et de ce qui la distingue du ballet classique."],
+  ["Quand le corps devient un langage", "Comment les danseurs peuvent raconter une histoire ou transmettre une émotion sans parler."],
+  ["Danse contemporaine : faut-il vraiment savoir danser ?", "Un article sur la liberté du mouvement et la différence avec les techniques très codifiées du classique. (Numeridanse)"],
+  ["Pourquoi les danseurs tombent-ils autant ?", "La place du sol, de la gravité, des chutes et du poids du corps dans la danse contemporaine."],
+  ["Danser sans musique : est-ce possible ?", "Une réflexion sur le silence, les bruits, les respirations et le rythme créé uniquement par les corps."],
+  ["Quand la technologie entre sur scène", "Vidéo, projections, lumières, capteurs, images numériques : comment la technologie transforme la danse. (Ministère de l'Éducation nationale)"],
+  ["La danse sort du théâtre", "Des spectacles dans la rue, les musées, les appartements ou les espaces naturels : pourquoi danser ailleurs ? (CND)"],
+  ["Danser avec le public", "Quand les spectateurs ne sont plus seulement assis dans leur fauteuil mais deviennent parfois partie intégrante du spectacle."],
+  ["Peut-on raconter une histoire sans aucun mot ?", "Comment les gestes, les déplacements et les expressions peuvent remplacer les dialogues."],
+  ["Danse contemporaine et émotions : que cherche à faire ressentir un danseur ?", "Colère, joie, peur, solitude, amour… comment les émotions passent-elles par le corps ?"],
+  ["Du ballet classique à la danse contemporaine : la grande révolution", "Un petit voyage historique pour comprendre pourquoi la danse s'est progressivement libérée de certaines règles. (CND)"],
+  ["Merce Cunningham : le chorégraphe qui voulait libérer la danse", "Portrait d'une figure majeure et découverte de son approche du mouvement. (Ministère de l'Éducation nationale)"],
+  ["Pina Bausch : quand la danse rencontre le théâtre", "Présenter son univers et expliquer pourquoi ses spectacles mélangent mouvement, théâtre et émotions."],
+  ["La Nouvelle danse française : quand les chorégraphes changent les règles", "Retour sur les années 1980 et l'apparition d'une nouvelle génération de chorégraphes en France. (Musidanse)"],
+  ["Une journée dans la vie d'un danseur contemporain", "Article imaginé ou basé sur une interview : entraînement, répétitions, alimentation, fatigue, spectacles…"],
+  ["Être danseur : rêve ou métier difficile ?", "Les exigences physiques et mentales, mais aussi les plaisirs et les satisfactions du métier."],
+  ["Comment crée-t-on une chorégraphie ?", "De la première idée aux répétitions, en passant par les essais, les improvisations et le travail avec les danseurs."],
+  ["Chorégraphe : le metteur en scène de la danse", "Expliquer le rôle du chorégraphe et ses relations avec les interprètes, les musiciens et les scénographes."],
+  ["Quand la danse rencontre les arts plastiques", "Décors, sculptures, costumes, lumières et installations : comment les autres arts influencent la chorégraphie. (INHA)"],
+  ["La danse contemporaine peut-elle être politique ?", "Comment les chorégraphes parlent de guerre, de société, d'identité, d'inégalités ou d'engagement. (Médiathèque CND)"],
+  ["Danser ensemble : que se passe-t-il quand plusieurs corps se rencontrent ?", "Contact, confiance, équilibre, portés et coopération entre les danseurs."],
+  ["Le corps imparfait : pourquoi la danse contemporaine refuse parfois la perfection ?", "Une réflexion sur les mouvements ordinaires, les gestes maladroits et la volonté de sortir de l'image du danseur parfait."],
+  ["La danse contemporaine sur TikTok et les réseaux sociaux", "Comment les réseaux changent-ils notre manière de regarder, pratiquer et partager la danse ?"],
+  ["5 idées reçues sur la danse contemporaine", "Par exemple : « Il faut être souple », « Il n'y a pas de technique », « C'est juste de l'improvisation », « On ne comprend jamais rien »…"],
+  ["Et si vous essayiez la danse contemporaine ?", "Un article très accessible expliquant ce qu'un débutant peut découvrir lors d'un cours : échauffement, improvisation, travail au sol, déplacement, création."],
+].map(([titre, desc], i) => ({ id: "sujet-" + String(i + 1).padStart(2, "0"), num: i + 1, titre, desc }));
+
+const GRILLES = {
+  pratique: { titre: "Pratique / Production chorégraphique", parties: [
+    { titre: "Maîtrise corporelle et qualité du mouvement", items: [
+      "Réaliser les mouvements avec précision", "Contrôler ses appuis et son équilibre",
+      "Mobiliser différentes parties du corps", "Varier les amplitudes gestuelles",
+      "Enchaîner les mouvements avec fluidité"],
+      aide: "Très bon niveau : mouvements maîtrisés, fluides, précis et engagés." },
+    { titre: "Utilisation des composantes de la danse", items: [
+      "L'espace (directions, niveaux, trajets, occupation du plateau)",
+      "Le temps (rythmes, accélérations, ralentissements, silences)",
+      "L'énergie (explosive, fluide, suspendue, lourde, légère)",
+      "Les relations avec les partenaires (si travail collectif)"],
+      aide: "Très bon niveau : les choix sont variés, lisibles et enrichissent la chorégraphie. Laisser un item vide s'il ne s'applique pas." },
+    { titre: "Interprétation et présence scénique", items: [
+      "S'engager pleinement dans sa prestation", "Transmettre une intention", "Habiter son mouvement",
+      "Capter l'attention du spectateur", "Assumer sa présence devant un public"],
+      aide: "Très bon niveau : l'interprétation est convaincante et l'intention clairement perceptible." },
+    { titre: "Composition et cohérence chorégraphique", items: [
+      "Construire une chorégraphie cohérente", "Exploiter les procédés de composition vus en cours",
+      "Organiser les séquences de manière pertinente", "Créer des transitions efficaces",
+      "Proposer une production originale et structurée"],
+      aide: "Très bon niveau : la composition est réfléchie, fluide et porteuse de sens." },
+  ]},
+  investissement: { titre: "Investissement", parties: [
+    { titre: "Assiduité et ponctualité", items: [
+      "Présente régulièrement aux séances", "Arrive à l'heure", "Participe à l'ensemble du cours",
+      "Adopte une tenue adaptée à la pratique"],
+      aide: "4-5 : présence régulière et ponctualité exemplaire · 2-3 : quelques absences ou retards justifiés · 0-1 : absences répétées ou participation incomplète." },
+    { titre: "Participation active et engagement corporel", items: [
+      "Participe à tous les exercices proposés", "Ose expérimenter de nouvelles formes de mouvement",
+      "S'implique physiquement dans les situations d'apprentissage", "Accepte de sortir de sa zone de confort"],
+      aide: "4-5 : participation dynamique et engagement constant · 2-3 : correcte mais parfois en retrait · 0-1 : limitée ou passive." },
+    { titre: "Implication dans la démarche de création", items: [
+      "Propose des idées lors des temps de composition", "Contribue à la construction de la chorégraphie",
+      "Prend des initiatives", "Accepte les essais, les ajustements et les remises en question"],
+      aide: "4-5 : force de proposition, forte implication · 2-3 : contribution régulière mais limitée · 0-1 : peu d'investissement dans le processus créatif." },
+    { titre: "Attitude, coopération et progression", items: [
+      "Respecte ses partenaires et le cadre de travail", "Écoute les consignes et les retours",
+      "Participe aux échanges et aux observations", "Montre une progression au fil du semestre",
+      "Adopte une attitude constructive au sein du groupe"],
+      aide: "4-5 : attitude exemplaire, coopération active, progression visible · 2-3 : satisfaisante, progression modérée · 0-1 : manque d'implication ou difficultés avec le groupe." },
+  ]},
+  article: { titre: "Théorie · Article de gazette", parties: [
+    { titre: "Pertinence et qualité du contenu", items: [
+      "Répond à la thématique proposée", "Informations fiables et pertinentes", "Met en évidence les idées essentielles",
+      "Témoigne d'une compréhension du sujet", "Respecte les consignes données"],
+      aide: "Très bon niveau : informations pertinentes, hiérarchisées et parfaitement adaptées au sujet." },
+    { titre: "Capacité de synthèse et clarté du message", items: [
+      "Va à l'essentiel", "Met en avant les informations importantes", "Vocabulaire adapté",
+      "Facilement compréhensible", "Peut être lu en environ 4 minutes"],
+      aide: "Très bon niveau : le lecteur identifie immédiatement les idées principales." },
+    { titre: "Qualité visuelle et mise en page", items: [
+      "Attractif visuellement", "Organisation claire", "Titres, sous-titres, encadrés et illustrations efficaces",
+      "Favorise une lecture fluide", "Respecte les principes de communication visuelle"],
+      aide: "Très bon niveau : la mise en page capte l'attention et met en valeur le contenu." },
+    { titre: "Travail collaboratif et cohérence de la production", items: [
+      "Répartition équilibrée des tâches", "Production harmonieuse", "Cohérence entre les différentes parties",
+      "Respect des délais et des consignes", "Document homogène malgré le travail collectif"],
+      aide: "Très bon niveau : document cohérent, harmonieux, véritable collaboration." },
+  ]},
+  video: { titre: "Théorie · Vidéo ou podcast", parties: [
+    { titre: "Compréhension des facteurs de performance et de santé", items: [
+      "Sommeil", "Récupération", "Alimentation", "Hydratation", "Activité physique complémentaire",
+      "Gestion du stress", "Organisation personnelle", "Échauffement et récupération"],
+      aide: "Très bon niveau : facteurs variés, correctement expliqués et mis en relation avec la danse." },
+    { titre: "Analyse personnelle et réflexion critique", items: [
+      "Analyse ses habitudes actuelles", "Identifie ses points forts", "Identifie ses axes d'amélioration",
+      "Propose des objectifs réalistes"],
+      aide: "Très bon niveau : réflexion personnelle, argumentée et pertinente." },
+    { titre: "Pertinence des solutions proposées", items: [
+      "Améliorer son sommeil", "Mieux gérer son temps", "Pratiquer une activité complémentaire",
+      "Mettre en place une routine d'échauffement", "Développer mobilité ou renforcement musculaire",
+      "Adopter de meilleures habitudes de récupération"],
+      aide: "Très bon niveau : propositions réalistes, cohérentes et adaptées à sa situation." },
+    { titre: "Qualité de la communication", items: [
+      "Support structuré", "Clair et compréhensible", "Respecte la durée demandée",
+      "Discours fluide", "Utilise efficacement le format (audio ou vidéo)"],
+      aide: "Très bon niveau : message clair, dynamique et bien organisé." },
+  ]},
+};
+const SEMESTRES = {
+  s1: { label: "Semestre 1", grilles: ["pratique", "investissement", "article"] },
+  s2: { label: "Semestre 2", grilles: ["pratique", "investissement", "video"] },
+};
+
+/* ================= État & utilitaires ================= */
+const S = { me: null, role: null, etudiants: {}, sujets: {}, inscriptions: {}, notes: {}, config: null,
+            unsub: [], tab: "etudiants", sel: null, sem: "s1", editEtu: null };
+const $ = (q) => document.querySelector(q);
+const h = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (n) => n == null ? "–" : (Number.isInteger(n) ? String(n) : n.toFixed(1).replace(".", ","));
+const byName = (a, b) => (a.nom || "").localeCompare(b.nom || "", "fr") || (a.prenom || "").localeCompare(b.prenom || "", "fr");
+const etuList = () => Object.values(S.etudiants).sort(byName);
+const sujetList = () => Object.values(S.sujets).sort((a, b) => a.num - b.num);
+const nom = (e) => { const x = S.etudiants[e]; return x ? `${x.prenom} ${x.nom}` : e; };
+const maxPlaces = () => S.config?.maxParSujet || 1;
+let toastT;
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 3200); }
+function show(v) { for (const id of ["loading", "login", "denied", "student", "admin"]) $("#v-" + id).hidden = id !== v; }
+function fail(e) { console.error(e); toast("Erreur : " + (e?.message || e)); }
+
+function notePartie(levels, nItems) {
+  const vals = [];
+  for (let i = 0; i < nItems; i++) { const v = levels?.["i" + i]; if (Number.isInteger(v)) vals.push(v * VALEUR); }
+  if (!vals.length) return null;
+  const moy = vals.reduce((a, b) => a + b, 0) / vals.length;
+  return { note: Math.round(moy * 2) / 2, nb: vals.length };
+}
+function noteGrille(ng, gk) {
+  const g = GRILLES[gk];
+  const parts = g.parties.map((p, pi) => notePartie(ng?.["p" + pi], p.items.length));
+  const done = parts.filter(Boolean);
+  return { parts, total: done.length ? done.reduce((a, p) => a + p.note, 0) : null, complet: done.length === parts.length };
+}
+function notesEtu(email, sem) {
+  const ns = S.notes[email]?.[sem] || {};
+  return SEMESTRES[sem].grilles.map((gk) => noteGrille(ns[gk], gk));
+}
+
+/* ================= Authentification ================= */
+if (isSignInWithEmailLink(auth, location.href)) {
+  let email = localStorage.getItem("emailForSignIn");
+  if (!email) email = prompt("Confirme ton adresse mail Dauphine :");
+  if (email) {
+    signInWithEmailLink(auth, email.trim(), location.href)
+      .then(() => { localStorage.removeItem("emailForSignIn"); history.replaceState(null, "", location.pathname); })
+      .catch((e) => { fail(e); history.replaceState(null, "", location.pathname); });
+  }
+}
+
+$("#f-link").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const email = $("#link-email").value.trim().toLowerCase();
+  const msg = $("#link-msg");
+  if (!DOMAIN_RE.test(email)) { msg.textContent = "Utilise ton adresse Dauphine (…@dauphine.psl.eu, …@psl.eu ou …@dauphine.eu)."; return; }
+  try {
+    await sendSignInLinkToEmail(auth, email, { url: location.origin + location.pathname, handleCodeInApp: true });
+    localStorage.setItem("emailForSignIn", email);
+    msg.textContent = "Lien envoyé à " + email + ". Ouvre-le depuis cet appareil (pense à vérifier tes spams).";
+  } catch (e) { msg.textContent = "Envoi impossible : " + e.message; }
+});
+
+onAuthStateChanged(auth, async (user) => {
+  S.unsub.forEach((u) => u()); S.unsub = [];
+  $("#btn-logout").hidden = !user;
+  $("#who").textContent = user ? user.email : "";
+  if (!user) { S.role = null; show("login"); return; }
+  const me = (user.email || "").toLowerCase();
+  S.me = me;
+  if (ADMINS.includes(me)) { S.role = "admin"; startListeners(true); show("admin"); setTab(S.tab); return; }
+  if (!DOMAIN_RE.test(me)) { deny("Cette adresse n'a pas accès à l'application. Les étudiantes se connectent avec leur adresse Dauphine."); return; }
+  try {
+    const d = await getDoc(doc(db, "etudiants", me));
+    if (!d.exists()) throw new Error("absente");
+    S.role = "student"; startListeners(false); show("student");
+  } catch { deny("Ton adresse (" + me + ") n'est pas encore inscrite. Demande à ton enseignante de t'ajouter, puis reconnecte-toi."); }
+});
+function deny(m) { $("#denied-msg").textContent = m; show("denied"); }
+
+function startListeners(admin) {
+  const onErr = (e) => fail(e);
+  const mapOf = (qs) => Object.fromEntries(qs.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
+  S.unsub.push(onSnapshot(collection(db, "etudiants"), (qs) => { S.etudiants = mapOf(qs); render(); }, onErr));
+  S.unsub.push(onSnapshot(collection(db, "sujets"), (qs) => { S.sujets = mapOf(qs); render(); }, onErr));
+  S.unsub.push(onSnapshot(collection(db, "inscriptions"), (qs) => { S.inscriptions = mapOf(qs); render(); }, onErr));
+  S.unsub.push(onSnapshot(doc(db, "config", "general"), (d) => { S.config = d.exists() ? d.data() : null; render(); }, onErr));
+  if (admin) S.unsub.push(onSnapshot(collection(db, "notes"), (qs) => { S.notes = mapOf(qs); render(); }, onErr));
+}
+function render() { if (S.role === "student") renderStudent(); else if (S.role === "admin") updateTab(); }
+
+/* ================= Espace étudiante ================= */
+function renderStudent() {
+  const el = $("#v-student");
+  const me = S.me, moi = S.etudiants[me];
+  const insc = S.inscriptions[me];
+  const ouvert = !!S.config?.choixOuverts;
+  let html = `<div class="card"><h2>Bonjour ${h(moi?.prenom || "")} 👋</h2>`;
+
+  if (!insc) {
+    html += ouvert
+      ? `<p>Choisis ton sujet d'article de gazette. <strong>Le choix est définitif</strong> et c'est premier arrivé, premier servi.</p><p class="hint">${maxPlaces()} place(s) par sujet.</p></div>`
+      : `<p>Le choix des sujets n'est pas encore ouvert. Reviens plus tard.</p></div>`;
+    html += `<div class="sujets">` + sujetList().map((s) => {
+      const n = (s.membres || []).length, full = n >= maxPlaces();
+      return `<div class="sujet ${full ? "full" : ""}">
+        <span class="num">SUJET ${s.num} · ${n}/${maxPlaces()}</span>
+        <span class="titre">${h(s.titre)}</span><span class="desc">${h(s.desc)}</span>
+        ${n ? `<div>${(s.membres || []).map((m) => `<span class="pill">${h(nom(m))}</span>`).join("")}</div>` : ""}
+        <button data-act="choisir" data-s="${s.id}" ${full || !ouvert ? "disabled" : ""}>${full ? "Complet" : "Choisir ce sujet"}</button>
+      </div>`;
+    }).join("") + `</div>`;
+    el.innerHTML = html; return;
+  }
+
+  const s = S.sujets[insc.sujet] || {};
+  const membres = s.membres || [me];
+  const autres = membres.filter((m) => m !== me);
+  html += `<p>Ton sujet :</p><h3>Sujet ${s.num} · ${h(s.titre)}</h3><p class="hint">${h(s.desc)}</p></div>`;
+
+  html += `<div class="card"><h3>Mes actions</h3>
+    <label class="check"><input type="checkbox" data-act="realise" ${insc.realise ? "checked" : ""}>
+      <span>J'ai <strong>réalisé</strong> ma partie de l'article</span></label>`;
+  if (autres.length) {
+    html += autres.map((m) => `<label class="check"><input type="checkbox" data-act="relu" data-e="${h(m)}" ${insc.relus?.[m] ? "checked" : ""}>
+      <span>J'ai <strong>relu</strong> le travail de ${h(nom(m))} <span class="hint">(orthographe et mise en forme)</span></span></label>`).join("");
+  } else {
+    html += `<p class="hint">Personne d'autre n'a encore choisi ce sujet. Les cases de relecture apparaîtront quand ton groupe sera constitué.</p>`;
+  }
+  html += `</div>`;
+
+  html += `<div class="card"><h3>Mon groupe</h3><div class="tblwrap"><table><tr><th>Étudiante</th><th>Réalisé</th><th>Relu par</th></tr>` +
+    membres.map((m) => {
+      const i = S.inscriptions[m] || {};
+      const par = membres.filter((o) => o !== m && S.inscriptions[o]?.relus?.[m]);
+      const attendu = membres.length - 1;
+      return `<tr><td>${h(nom(m))}</td><td>${i.realise ? '<span class="yes">✓</span>' : '<span class="no">—</span>'}</td>
+        <td>${par.map((o) => `<span class="pill">${h(nom(o))}</span>`).join("") || '<span class="hint">personne</span>'} <span class="hint">${attendu ? par.length + "/" + attendu : ""}</span></td></tr>`;
+    }).join("") + `</table></div></div>`;
+  el.innerHTML = html;
+}
+
+async function choisirSujet(sid, email, parAdmin = false) {
+  await runTransaction(db, async (tx) => {
+    const sRef = doc(db, "sujets", sid), iRef = doc(db, "inscriptions", email);
+    const sDoc = await tx.get(sRef), iDoc = await tx.get(iRef), cDoc = await tx.get(doc(db, "config", "general"));
+    if (!sDoc.exists()) throw new Error("Sujet introuvable.");
+    if (iDoc.exists()) throw new Error("Un sujet est déjà choisi.");
+    const cfg = cDoc.data() || {};
+    const membres = sDoc.data().membres || [];
+    if (!parAdmin && !cfg.choixOuverts) throw new Error("Le choix des sujets est fermé.");
+    if (!parAdmin && membres.length >= (cfg.maxParSujet || 1)) throw new Error("Trop tard, ce sujet vient d'être complété.");
+    tx.update(sRef, { membres: [...membres, email] });
+    tx.set(iRef, { sujet: sid, realise: false, relus: {}, date: serverTimestamp() });
+  });
+}
+
+/* ================= Espace prof : onglets ================= */
+function setTab(t) {
+  S.tab = t;
+  document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === t));
+  const c = $("#admin-content");
+  c.innerHTML = TABS[t].build();
+  TABS[t].init?.();
+  updateTab();
+}
+function updateTab() { TABS[S.tab]?.update(); }
+
+const TABS = {
+  /* ---------- Étudiantes ---------- */
+  etudiants: {
+    build: () => `
+      <div class="card"><h3 id="etu-form-title">Ajouter une étudiante</h3>
+        <form id="f-etu" class="row">
+          <input id="e-prenom" placeholder="Prénom" required>
+          <input id="e-nom" placeholder="Nom" required>
+          <input id="e-email" type="email" placeholder="prenom.nom@dauphine.psl.eu" required>
+          <input id="e-jour" placeholder="Jour de danse (ex. mardi)" list="jours">
+          <button>Enregistrer</button>
+          <button type="button" class="ghost" data-act="etu-cancel" id="etu-cancel" hidden>Annuler</button>
+        </form>
+        <datalist id="jours"></datalist>
+        <p class="hint">Seules les adresses …@dauphine.psl.eu, …@psl.eu et …@dauphine.eu peuvent se connecter.</p>
+      </div>
+      <div class="card"><h3>Liste des étudiantes (<span id="nb-etu">0</span>)</h3><div id="tbl-etu" class="tblwrap"></div></div>`,
+    init: () => { $("#f-etu").addEventListener("submit", saveEtu); },
+    update: () => {
+      const list = etuList();
+      $("#nb-etu").textContent = list.length;
+      $("#jours").innerHTML = [...new Set(list.map((e) => e.jour).filter(Boolean))].map((j) => `<option value="${h(j)}">`).join("");
+      $("#tbl-etu").innerHTML = list.length ? `<table><tr><th>Nom</th><th>Prénom</th><th>Mail</th><th>Jour</th><th>Sujet</th><th></th></tr>` +
+        list.map((e) => {
+          const i = S.inscriptions[e.id], s = i && S.sujets[i.sujet];
+          return `<tr><td>${h(e.nom)}</td><td>${h(e.prenom)}</td><td class="hint">${h(e.id)}</td><td>${h(e.jour)}</td>
+            <td>${s ? "n° " + s.num : '<span class="hint">—</span>'}</td>
+            <td class="row"><button class="small ghost" data-act="etu-edit" data-e="${h(e.id)}">Modifier</button>
+            <button class="small danger" data-act="etu-del" data-e="${h(e.id)}">Supprimer</button></td></tr>`;
+        }).join("") + `</table>` : `<p class="hint">Aucune étudiante pour l'instant. Ajoute-les avec le formulaire ci-dessus.</p>`;
+    },
+  },
+
+  /* ---------- Sujets & relecture ---------- */
+  sujets: {
+    build: () => `<div class="card"><div id="suj-resume"></div><div id="tbl-suj" class="tblwrap"></div></div>`,
+    update: () => {
+      const list = sujetList();
+      if (!list.length) {
+        $("#suj-resume").innerHTML = `<p>Les 25 sujets ne sont pas encore créés.</p><button data-act="init">Créer les 25 sujets</button>`;
+        $("#tbl-suj").innerHTML = ""; return;
+      }
+      const sansSujet = etuList().filter((e) => !S.inscriptions[e.id]);
+      $("#suj-resume").innerHTML = `<p>Choix ${S.config?.choixOuverts ? '<span class="yes">ouverts</span>' : '<span class="no">fermés</span>'} · ${maxPlaces()} place(s) par sujet ·
+        ${sansSujet.length} étudiante(s) sans sujet${sansSujet.length ? " : " + sansSujet.map((e) => `<span class="pill">${h(e.prenom + " " + e.nom)}</span>`).join("") : ""}</p>
+        <p class="hint">« Réalisé » et « Relu » sont cochés par les étudiantes. Chaque étudiante doit relire le travail de chaque autre membre de son groupe.</p>`;
+      const opts = sansSujet.map((e) => `<option value="${h(e.id)}">${h(e.prenom + " " + e.nom)}</option>`).join("");
+      $("#tbl-suj").innerHTML = `<table><tr><th>N°</th><th>Sujet</th><th>Groupe : réalisé · relu par</th><th>Relectures</th></tr>` +
+        list.map((s) => {
+          const m = s.membres || [];
+          const attendu = m.length * (m.length - 1);
+          let faites = 0;
+          const lignes = m.map((e) => {
+            const i = S.inscriptions[e] || {};
+            const par = m.filter((o) => o !== e && S.inscriptions[o]?.relus?.[e]);
+            faites += par.length;
+            return `<div style="margin-bottom:4px"><strong>${h(nom(e))}</strong> ${i.realise ? '<span class="yes">✓ réalisé</span>' : '<span class="no">non réalisé</span>'}
+              · relu par ${par.length ? par.map((o) => h(nom(o))).join(", ") : '<span class="hint">personne</span>'}
+              <button class="small danger" data-act="unassign" data-s="${s.id}" data-e="${h(e)}" title="Retirer du sujet">✕</button></div>`;
+          }).join("");
+          return `<tr><td><strong>${s.num}</strong></td><td>${h(s.titre)}</td>
+            <td>${lignes || '<span class="hint">libre</span>'}
+              ${opts ? `<div><select data-act="assign" data-s="${s.id}"><option value="">+ Ajouter une étudiante…</option>${opts}</select></div>` : ""}</td>
+            <td>${attendu ? `${faites}/${attendu}` : "—"}</td></tr>`;
+        }).join("") + `</table>`;
+    },
+  },
+
+  /* ---------- Notation ---------- */
+  notation: {
+    build: () => `<div class="notation">
+        <aside class="card">
+          <input id="n-q" placeholder="Rechercher…">
+          <select id="n-jour"></select>
+          <div id="liste-etu"></div>
+        </aside>
+        <section>
+          <div class="card" id="fiche-head"></div>
+          <div id="fiche-body" hidden>
+            <div class="semtabs"><button data-act="sem" data-sem="s1">Semestre 1</button><button data-act="sem" data-sem="s2">Semestre 2</button></div>
+            <div class="legende">${NIVEAUX.map((n, l) => `<span><i class="l${l}"></i>${h(n)}</span>`).join("")}</div>
+            <div id="grille"></div>
+            <div class="card"><h3>Commentaire (privé)</h3><textarea id="n-comment" placeholder="Remarques sur ce semestre…"></textarea></div>
+          </div>
+        </section>
+      </div>`,
+    init: () => {
+      $("#n-q").addEventListener("input", () => TABS.notation.update());
+      $("#n-jour").addEventListener("change", () => TABS.notation.update());
+      let t;
+      $("#n-comment").addEventListener("input", (ev) => {
+        clearTimeout(t);
+        const email = S.sel, sem = S.sem, val = ev.target.value;
+        t = setTimeout(() => setDoc(doc(db, "notes", email), { commentaires: { [sem]: val }, maj: serverTimestamp() }, { merge: true }).catch(fail), 600);
+      });
+    },
+    update: () => {
+      const jours = [...new Set(etuList().map((e) => e.jour).filter(Boolean))];
+      const js = $("#n-jour"), jv = js.value;
+      js.innerHTML = `<option value="">Tous les jours</option>` + jours.map((j) => `<option ${j === jv ? "selected" : ""}>${h(j)}</option>`).join("");
+      const q = $("#n-q").value.trim().toLowerCase();
+      const list = etuList().filter((e) => (!js.value || e.jour === js.value) && (!q || (e.prenom + " " + e.nom).toLowerCase().includes(q)));
+      $("#liste-etu").innerHTML = list.map((e) => {
+        const tot = (sem) => notesEtu(e.id, sem).map((r) => fmt(r.total)).join(" · ");
+        return `<button class="etu-item ${S.sel === e.id ? "on" : ""}" data-act="sel" data-e="${h(e.id)}">${h(e.nom)} ${h(e.prenom)}
+          <small>${h(e.jour || "")} · S1 ${tot("s1")} · S2 ${tot("s2")}</small></button>`;
+      }).join("") || `<p class="hint">Aucune étudiante.</p>`;
+
+      const e = S.sel && S.etudiants[S.sel];
+      $("#fiche-body").hidden = !e;
+      if (!e) { $("#fiche-head").innerHTML = `<p class="hint">Sélectionne une étudiante dans la liste.</p>`; return; }
+      document.querySelectorAll(".semtabs button").forEach((b) => b.classList.toggle("on", b.dataset.sem === S.sem));
+      const i = S.inscriptions[e.id], s = i && S.sujets[i.sujet];
+      const autres = s ? (s.membres || []).filter((m) => m !== e.id) : [];
+      $("#fiche-head").innerHTML = `<h2>${h(e.prenom)} ${h(e.nom)}</h2><p class="hint">${h(e.id)}${e.jour ? " · " + h(e.jour) : ""}</p>
+        <div class="groupe">${s
+          ? `<strong>Article : sujet ${s.num}</strong> · ${h(s.titre)}<br>Groupe : ${autres.length ? autres.map((m) => `<span class="pill">${h(nom(m))}</span>`).join("") : "seule"}
+             · ${i.realise ? '<span class="yes">réalisé</span>' : '<span class="no">non réalisé</span>'}
+             · a relu ${autres.filter((m) => i.relus?.[m]).length}/${autres.length}`
+          : "Pas encore de sujet d'article."}</div>`;
+
+      const ns = S.notes[e.id]?.[S.sem] || {};
+      $("#grille").innerHTML = SEMESTRES[S.sem].grilles.map((gk) => {
+        const g = GRILLES[gk], ng = ns[gk] || {}, r = noteGrille(ng, gk);
+        return `<div class="grille"><div class="grille-head"><h3>${h(g.titre)}</h3>
+          <div class="total">${fmt(r.total)}<small> /20</small>${r.total != null && !r.complet ? '<span class="incomplet">incomplet</span>' : ""}</div></div>` +
+          g.parties.map((p, pi) => {
+            const lv = ng["p" + pi] || {}, pn = r.parts[pi];
+            return `<div class="partie"><div class="partie-head"><h4>${pi + 1}. ${h(p.titre)}</h4><span class="pnote">${pn ? fmt(pn.note) : "–"}<small> /5</small></span></div>` +
+              p.items.map((it, ii) => {
+                const cur = lv["i" + ii];
+                return `<div class="item"><span class="item-label">${h(it)}</span><span class="boxes">` +
+                  [0, 1, 2, 3, 4].map((l) => `<button class="box l${l} ${cur === l ? "on" : ""}" title="${h(NIVEAUX[l])}" aria-label="${h(NIVEAUX[l])}"
+                    data-act="lvl" data-g="${gk}" data-p="${pi}" data-i="${ii}" data-l="${l}"></button>`).join("") + `</span></div>`;
+              }).join("") + `<p class="aide">${h(p.aide)}</p></div>`;
+          }).join("") + `</div>`;
+      }).join("");
+
+      const ta = $("#n-comment");
+      if (document.activeElement !== ta) ta.value = S.notes[e.id]?.commentaires?.[S.sem] || "";
+    },
+  },
+
+  /* ---------- Récapitulatif ---------- */
+  recap: {
+    build: () => `<div class="card"><div class="row" style="justify-content:space-between"><h3>Récapitulatif des notes (/20)</h3>
+      <button data-act="export">Exporter en Excel</button></div><p class="hint">* = note incomplète (certaines parties pas encore évaluées).</p>
+      <div id="tbl-recap" class="tblwrap"></div></div>`,
+    update: () => {
+      const cell = (r) => r.total == null ? '<span class="hint">–</span>' : fmt(r.total) + (r.complet ? "" : "*");
+      $("#tbl-recap").innerHTML = `<table><tr><th>Nom</th><th>Prénom</th><th>Jour</th><th>Sujet</th>
+        <th>S1 Pratique</th><th>S1 Invest.</th><th>S1 Article</th><th>S2 Pratique</th><th>S2 Invest.</th><th>S2 Vidéo</th></tr>` +
+        etuList().map((e) => {
+          const i = S.inscriptions[e.id], s = i && S.sujets[i.sujet];
+          return `<tr><td>${h(e.nom)}</td><td>${h(e.prenom)}</td><td>${h(e.jour)}</td><td>${s ? s.num : "–"}</td>` +
+            [...notesEtu(e.id, "s1"), ...notesEtu(e.id, "s2")].map((r) => `<td>${cell(r)}</td>`).join("") + `</tr>`;
+        }).join("") + `</table>`;
+    },
+  },
+
+  /* ---------- Réglages ---------- */
+  reglages: {
+    build: () => `<div class="card"><h3>Choix des sujets d'article</h3>
+        <label class="check"><input type="checkbox" id="cfg-open"><span><strong>Choix ouverts</strong> : les étudiantes peuvent choisir leur sujet</span></label>
+        <p class="row">Nombre d'étudiantes maximum par sujet :
+          <select id="cfg-max">${[1, 2, 3, 4, 5].map((n) => `<option>${n}</option>`).join("")}</select></p>
+        <p class="hint">Avec 18 étudiantes et 25 sujets, 1 place = travail seule. Mets 2 à 5 pour des groupes.</p>
+      </div>
+      <div class="card"><h3>Sujets</h3><p class="hint">Crée les 25 sujets s'ils n'existent pas encore (ne modifie pas les choix déjà faits).</p>
+        <button data-act="init">Créer les sujets manquants</button></div>
+      <div class="card"><h3>Accès enseignantes</h3><p>${ADMINS.map((a) => `<span class="pill">${h(a)}</span>`).join("")}</p>
+        <p class="hint">Pour en ajouter, modifier la liste dans index.html et dans firestore.rules.</p></div>`,
+    init: () => {
+      const save = (data) => setDoc(doc(db, "config", "general"), data, { merge: true }).then(() => toast("Réglage enregistré")).catch(fail);
+      $("#cfg-open").addEventListener("change", (ev) => save({ choixOuverts: ev.target.checked, maxParSujet: maxPlaces() }));
+      $("#cfg-max").addEventListener("change", (ev) => save({ maxParSujet: Number(ev.target.value), choixOuverts: !!S.config?.choixOuverts }));
+    },
+    update: () => { $("#cfg-open").checked = !!S.config?.choixOuverts; $("#cfg-max").value = String(maxPlaces()); },
+  },
+};
+
+/* ================= Actions prof ================= */
+async function saveEtu(ev) {
+  ev.preventDefault();
+  const prenom = $("#e-prenom").value.trim(), nomV = $("#e-nom").value.trim();
+  const email = $("#e-email").value.trim().toLowerCase(), jour = $("#e-jour").value.trim();
+  if (!DOMAIN_RE.test(email)) { toast("Adresse non autorisée : …@dauphine.psl.eu, …@psl.eu ou …@dauphine.eu"); return; }
+  if (!S.editEtu && S.etudiants[email]) { toast("Cette adresse est déjà dans la liste."); return; }
+  try {
+    await setDoc(doc(db, "etudiants", email), { prenom, nom: nomV, email, jour }, { merge: true });
+    toast(S.editEtu ? "Modifications enregistrées" : prenom + " ajoutée");
+    resetEtuForm();
+  } catch (e) { fail(e); }
+}
+function resetEtuForm() {
+  S.editEtu = null; $("#f-etu").reset(); $("#e-email").readOnly = false;
+  $("#etu-form-title").textContent = "Ajouter une étudiante"; $("#etu-cancel").hidden = true;
+}
+async function delEtu(email) {
+  if (!confirm(`Supprimer ${nom(email)} ? Son choix de sujet et toutes ses notes seront aussi supprimés.`)) return;
+  const b = writeBatch(db);
+  const i = S.inscriptions[email];
+  if (i && S.sujets[i.sujet]) b.update(doc(db, "sujets", i.sujet), { membres: arrayRemove(email) });
+  b.delete(doc(db, "inscriptions", email));
+  b.delete(doc(db, "notes", email));
+  b.delete(doc(db, "etudiants", email));
+  await b.commit().then(() => toast("Supprimée")).catch(fail);
+  if (S.sel === email) S.sel = null;
+}
+async function initSujets() {
+  const b = writeBatch(db); let n = 0;
+  for (const s of SUJETS) if (!S.sujets[s.id]) { b.set(doc(db, "sujets", s.id), { num: s.num, titre: s.titre, desc: s.desc, membres: [] }); n++; }
+  if (!S.config) b.set(doc(db, "config", "general"), { maxParSujet: 1, choixOuverts: false });
+  await b.commit().then(() => toast(n + " sujet(s) créé(s)")).catch(fail);
+}
+async function unassign(sid, email) {
+  if (!confirm(`Retirer ${nom(email)} du sujet ? Ses cases « réalisé » et « relu » seront effacées.`)) return;
+  const b = writeBatch(db);
+  b.update(doc(db, "sujets", sid), { membres: arrayRemove(email) });
+  b.delete(doc(db, "inscriptions", email));
+  await b.commit().then(() => toast("Retirée du sujet")).catch(fail);
+}
+async function setLevel(gk, pi, ii, l) {
+  const email = S.sel, sem = S.sem;
+  const cur = S.notes[email]?.[sem]?.[gk]?.["p" + pi]?.["i" + ii];
+  const val = cur === l ? deleteField() : l;
+  await setDoc(doc(db, "notes", email), { [sem]: { [gk]: { ["p" + pi]: { ["i" + ii]: val } } }, maj: serverTimestamp() }, { merge: true }).catch(fail);
+}
+function exportXlsx() {
+  if (!window.XLSX) { toast("Module Excel non chargé."); return; }
+  const recap = [["Nom", "Prénom", "Mail", "Jour", "Sujet", "S1 Pratique", "S1 Investissement", "S1 Article", "S2 Pratique", "S2 Investissement", "S2 Vidéo", "Commentaire S1", "Commentaire S2"]];
+  const detail = [["Nom", "Prénom", "Semestre", "Épreuve", "Partie", "Note /5", "Items évalués"]];
+  for (const e of etuList()) {
+    const i = S.inscriptions[e.id], s = i && S.sujets[i.sujet];
+    const tots = [...notesEtu(e.id, "s1"), ...notesEtu(e.id, "s2")].map((r) => r.total ?? "");
+    const c = S.notes[e.id]?.commentaires || {};
+    recap.push([e.nom, e.prenom, e.id, e.jour || "", s ? s.num : "", ...tots, c.s1 || "", c.s2 || ""]);
+    for (const sem of ["s1", "s2"]) {
+      const ns = S.notes[e.id]?.[sem] || {};
+      for (const gk of SEMESTRES[sem].grilles) {
+        const g = GRILLES[gk], r = noteGrille(ns[gk], gk);
+        g.parties.forEach((p, pi) => detail.push([e.nom, e.prenom, SEMESTRES[sem].label, g.titre, p.titre, r.parts[pi]?.note ?? "", r.parts[pi] ? `${r.parts[pi].nb}/${p.items.length}` : ""]));
+      }
+    }
+  }
+  const suj = [["N°", "Sujet", "Étudiante", "Réalisé", "A relu", "Relue par"]];
+  for (const s of sujetList()) {
+    const m = s.membres || [];
+    if (!m.length) suj.push([s.num, s.titre, "", "", "", ""]);
+    for (const e of m) {
+      const i = S.inscriptions[e] || {};
+      suj.push([s.num, s.titre, nom(e), i.realise ? "oui" : "non",
+        m.filter((o) => o !== e && i.relus?.[o]).map(nom).join(", "),
+        m.filter((o) => o !== e && S.inscriptions[o]?.relus?.[e]).map(nom).join(", ")]);
+    }
+  }
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(recap), "Récapitulatif");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(detail), "Détail par partie");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(suj), "Sujets et relecture");
+  XLSX.writeFile(wb, `Notes danse ${new Date().toLocaleDateString("fr-FR").replace(/\//g, "-")}.xlsx`);
+}
+
+/* ================= Délégation d'événements ================= */
+document.addEventListener("click", async (ev) => {
+  const t = ev.target.closest("[data-act]");
+  if (!t || t.tagName === "SELECT" || t.type === "checkbox") return;
+  const d = t.dataset;
+  switch (d.act) {
+    case "logout": signOut(auth); break;
+    case "google": signInWithPopup(auth, new GoogleAuthProvider()).catch(fail); break;
+    case "tab": setTab(d.tab); break;
+    case "choisir": {
+      const s = S.sujets[d.s];
+      if (!confirm(`Choisir le sujet ${s.num} : « ${s.titre} » ?\nCe choix est définitif.`)) return;
+      t.disabled = true;
+      try { await choisirSujet(d.s, S.me); toast("Sujet enregistré !"); } catch (e) { toast(e.message); t.disabled = false; }
+      break;
+    }
+    case "etu-edit": {
+      const e = S.etudiants[d.e]; S.editEtu = d.e;
+      $("#e-prenom").value = e.prenom; $("#e-nom").value = e.nom; $("#e-email").value = e.id; $("#e-email").readOnly = true;
+      $("#e-jour").value = e.jour || ""; $("#etu-form-title").textContent = "Modifier " + e.prenom + " " + e.nom;
+      $("#etu-cancel").hidden = false; $("#e-prenom").focus(); break;
+    }
+    case "etu-cancel": resetEtuForm(); break;
+    case "etu-del": delEtu(d.e); break;
+    case "init": initSujets(); break;
+    case "unassign": unassign(d.s, d.e); break;
+    case "sel": S.sel = d.e; $("#n-comment").value = S.notes[d.e]?.commentaires?.[S.sem] || ""; updateTab(); break;
+    case "sem": S.sem = d.sem; $("#n-comment").value = S.notes[S.sel]?.commentaires?.[S.sem] || ""; updateTab(); break;
+    case "lvl": setLevel(d.g, Number(d.p), Number(d.i), Number(d.l)); break;
+    case "export": exportXlsx(); break;
+  }
+});
+document.addEventListener("change", async (ev) => {
+  const t = ev.target, d = t.dataset;
+  if (d.act === "realise") updateDoc(doc(db, "inscriptions", S.me), { realise: t.checked }).catch(fail);
+  if (d.act === "relu") {
+    const relus = { ...(S.inscriptions[S.me]?.relus || {}) };
+    if (t.checked) relus[d.e] = true; else delete relus[d.e];
+    updateDoc(doc(db, "inscriptions", S.me), { relus }).catch(fail);
+  }
+  if (d.act === "assign" && t.value) {
+    const email = t.value, s = S.sujets[d.s];
+    if ((s.membres || []).length >= maxPlaces() && !confirm("Ce sujet est déjà complet. L'ajouter quand même ?")) { t.value = ""; return; }
+    try { await choisirSujet(d.s, email, true); toast(nom(email) + " ajoutée au sujet " + s.num); } catch (e) { fail(e); }
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,83 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function myEmail() {
+      return request.auth.token.email.lower();
+    }
+    // Enseignantes : modifier aussi la liste ADMINS dans public/index.html
+    function isAdmin() {
+      return signedIn() && myEmail() in ['mzubaloff@gmail.com', 'florianeude@gmail.com'];
+    }
+    // Étudiante : adresse Dauphine ET ajoutée par une enseignante
+    function isStudent() {
+      return signedIn()
+        && myEmail().matches('^[^@]+@(dauphine[.]psl[.]eu|psl[.]eu|dauphine[.]eu)$')
+        && exists(/databases/$(db)/documents/etudiants/$(myEmail()));
+    }
+    function cfg() {
+      return get(/databases/$(db)/documents/config/general).data;
+    }
+
+    // Réglages : lus par tous les inscrits, modifiés par les enseignantes
+    match /config/{id} {
+      allow read: if isAdmin() || isStudent();
+      allow write: if isAdmin();
+    }
+
+    // Liste des étudiantes : gérée uniquement par les enseignantes
+    match /etudiants/{email} {
+      allow read: if isAdmin() || isStudent();
+      allow write: if isAdmin();
+    }
+
+    // Notes : STRICTEMENT réservées aux enseignantes
+    match /notes/{email} {
+      allow read, write: if isAdmin();
+    }
+
+    // Sujets : une étudiante peut seulement S'AJOUTER, jamais retirer quelqu'un
+    match /sujets/{sid} {
+      allow read: if isAdmin() || isStudent();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        isStudent()
+        && cfg().choixOuverts == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['membres'])
+        && request.resource.data.membres.size() == resource.data.membres.size() + 1
+        && request.resource.data.membres.hasAll(resource.data.membres)
+        && request.resource.data.membres.hasAll([myEmail()])
+        && !(myEmail() in resource.data.membres)
+        && request.resource.data.membres.size() <= cfg().maxParSujet
+        && !exists(/databases/$(db)/documents/inscriptions/$(myEmail()))
+        && getAfter(/databases/$(db)/documents/inscriptions/$(myEmail())).data.sujet == sid
+      );
+    }
+
+    // Inscription : un seul sujet par étudiante, définitif.
+    // Elle peut ensuite cocher « réalisé » et « relu », rien d'autre.
+    match /inscriptions/{email} {
+      allow read: if isAdmin() || isStudent();
+      allow delete: if isAdmin();
+      allow create: if isAdmin() || (
+        isStudent()
+        && email == myEmail()
+        && request.resource.data.keys().hasOnly(['sujet', 'realise', 'relus', 'date'])
+        && request.resource.data.realise == false
+        && request.resource.data.relus.size() == 0
+        && request.resource.data.date == request.time
+        && myEmail() in getAfter(/databases/$(db)/documents/sujets/$(request.resource.data.sujet)).data.membres
+      );
+      allow update: if isAdmin() || (
+        isStudent()
+        && email == myEmail()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['realise', 'relus'])
+        && request.resource.data.realise is bool
+        && request.resource.data.relus is map
+      );
+    }
+  }
+}
